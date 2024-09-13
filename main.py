@@ -9,32 +9,29 @@ class ArticulosApp(QtWidgets.QWidget):
         super().__init__()
         self.setWindowTitle("Gestión de Artículos")
         self.resize(800, 600)
-        
+
         # Crear una tabla
         self.table = QtWidgets.QTableWidget(self)
         self.table.setRowCount(0)
-        self.table.setColumnCount(19)
+        self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels([
-            "ID", "salesperson_name", "store_short_name", "net_sales", "order_number", "promocion_sales", 
-            "item_description", "territory", "department_code", "department_name", "item_number", 
-            "transation", "comision", "date", "fineline_code", "fineline_name", "class_code", 
-            "class_name", "comisionable"
+            "ID", "item_description", "item_number", "comisionable"
         ])
 
-        # Crear botones y campos de entrada
+        # Crear botones
         self.import_button = QtWidgets.QPushButton("Importar Excel")
         self.import_button.clicked.connect(self.open_file_dialog)
-        
+
         self.save_button = QtWidgets.QPushButton("Guardar Cambios")
         self.save_button.clicked.connect(self.update_comisionable_in_db)
-        
+
         self.export_button = QtWidgets.QPushButton("Exportar a Excel")
         self.export_button.clicked.connect(self.export_to_xls)
 
         self.load_button = QtWidgets.QPushButton("Cargar Datos desde DB")
         self.load_button.clicked.connect(self.load_data_from_db)
 
-        # Crear layout y agregar widgets
+        # Crear layout
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(self.import_button)
         layout.addWidget(self.save_button)
@@ -56,79 +53,64 @@ class ArticulosApp(QtWidgets.QWidget):
         cursor = conn.cursor()
 
         # Leer el archivo Excel
-        self.df = pd.read_excel(file_path)  # Actualizamos self.df con los datos importados
+        self.df = pd.read_excel(file_path)
 
-        # Convertir la columna 'comisionable' al tipo booleano
-        self.df['comisionable'] = self.df['comisionable'].astype(bool)
+        # Identificar las columnas 'item_number' y 'item_description' sin importar los nombres exactos
+        columns_map = {col.lower(): col for col in self.df.columns}
+        item_number_col = columns_map.get('item number')  # Buscar en minúsculas
+        item_description_col = columns_map.get('item description')  # Buscar en minúsculas
 
-        # Verificar que todas las columnas necesarias están presentes
-        required_columns = [
-            'salesperson_name', 'store_short_name', 'net_sales', 'order_number', 'promocion_sales',
-            'item_description', 'territory', 'department_code', 'department_name', 'item_number', 'transation',
-            'comision', 'date', 'fineline_code', 'fineline_name', 'class_code', 'class_name', 'comisionable'
-        ]
-        for column in required_columns:
-            if column not in self.df.columns:
-                QtWidgets.QMessageBox.critical(self, "Error", f"Falta la columna requerida: {column}")
-                return
 
-        # Iterar sobre el DataFrame e insertar datos en la base de datos
+        if not item_number_col or not item_description_col:
+            QtWidgets.QMessageBox.critical(self, "Error", "No se encontraron las columnas 'Item Number' o 'Item_Description'")
+            return
+
+        # Detectar y eliminar duplicados antes de insertar en la base de datos
+        self.df = self.df.drop_duplicates(subset=[item_number_col, item_description_col])
+
         for _, row in self.df.iterrows():
-            cursor.execute('''
-                INSERT INTO articulos (
-                    salesperson_name, store_short_name, net_sales, order_number, promocion_sales,
-                    item_description, territory, department_code, department_name, item_number, 
-                    transation, comision, date, fineline_code, fineline_name, class_code, 
-                    class_name, comisionable
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ''', (
-                row['salesperson_name'], row['store_short_name'], row['net_sales'], row['order_number'], 
-                row['promocion_sales'], row['item_description'], row['territory'], row['department_code'], 
-                row['department_name'], row['item_number'], row['transation'], row['comision'], 
-                row['date'], row['fineline_code'], row['fineline_name'], row['class_code'], 
-                row['class_name'], 'TRUE' if row['comisionable'] else 'FALSE'
-            ))
+            # Verificar si el artículo ya existe en la base de datos
+            if not self.is_duplicate_in_db(cursor, row[item_number_col], row[item_description_col]):
+                cursor.execute('''
+                    INSERT INTO articulos (item_description, item_number, comisionable)
+                    VALUES (%s, %s, %s)
+                ''', (
+                    row[item_description_col],
+                    row[item_number_col],
+                    'TRUE' if row.get('comisionable', False) else 'FALSE'
+                ))
 
         conn.commit()
         cursor.close()
         conn.close()
         QtWidgets.QMessageBox.information(self, "Éxito", "Datos importados exitosamente.")
 
+    def is_duplicate_in_db(self, cursor, item_number, item_description):
+        cursor.execute('''
+            SELECT COUNT(*) FROM articulos
+            WHERE item_number = %s AND item_description = %s
+        ''', (item_number, item_description))
+        return cursor.fetchone()[0] > 0
+
     def load_data_from_db(self):
         try:
-            # Inicializar la conexión
             conn = init.connect_db()
-            
-            # Verificar la conexión antes de usar el cursor
-            if conn is None:
-                raise Exception("No se pudo conectar a la base de datos.")
-            
-            # Crear un cursor
             cursor = conn.cursor()
-
-            # Ejecutar la consulta
             cursor.execute('SELECT * FROM articulos')
             rows = cursor.fetchall()
 
-            # Verificar si se obtuvieron filas
-            if not rows:
-                raise Exception("No se encontraron datos en la tabla 'articulos'.")
-
-            # Configurar la tabla solo si hay resultados
             self.table.setRowCount(len(rows))
-            self.table.setColumnCount(19)
-            
+
             for i, row in enumerate(rows):
                 for j, value in enumerate(row):
-                    if j == 18:  # Columna "comisionable"
+                    if j == 3:  # Columna "comisionable"
                         checkbox = QCheckBox()
-                        checkbox.setChecked(bool(value))  # Asegurarse de que sea booleano
+                        checkbox.setChecked(value == 'FALSE')
                         checkbox.stateChanged.connect(lambda state, row=i: self.update_comisionable_value(row, state))
                         self.table.setCellWidget(i, j, checkbox)
                     else:
                         self.table.setItem(i, j, QtWidgets.QTableWidgetItem(str(value)))
 
-            # Cerrar cursor y conexión
             cursor.close()
             conn.close()
 
@@ -137,48 +119,44 @@ class ArticulosApp(QtWidgets.QWidget):
             print(f"Error al cargar datos: {e}")
 
     def update_comisionable_value(self, row, state):
-        # Almacenar el valor actualizado del checkbox en el DataFrame
-        self.df.at[row, 'comisionable'] = bool(state) 
+        self.df.at[row, 'comisionable'] = bool(state)
 
     def update_comisionable_in_db(self):
-        try:
-            conn = init.connect_db()
-            cursor = conn.cursor()
+            try:
+                conn = init.connect_db()
+                cursor = conn.cursor()
 
-            # Iterar sobre las filas de la tabla y actualizar la columna 'comisionable'
-            for row in range(self.table.rowCount()):
-                item_id = self.table.item(row, 0).text()  # Suponiendo que el 'ID' está en la primera columna
-                comisionable_widget = self.table.cellWidget(row, 18)  # El checkbox está en la columna 18
-                comisionable_value = comisionable_widget.isChecked()
+                for row in range(self.table.rowCount()):
+                    item_id = self.table.item(row, 0).text()  # Asumiendo que el 'ID' está en la primera columna
+                    comisionable_widget = self.table.cellWidget(row, 3)  # El checkbox está en la cuarta columna
+                    comisionable_value = comisionable_widget.isChecked()
 
-                cursor.execute('''
-                    UPDATE articulos
-                    SET comisionable = %s
-                    WHERE id = %s
-                ''', ('TRUE' if comisionable_value else 'FALSE', item_id))
+                    cursor.execute('''
+                        UPDATE articulos
+                        SET comisionable = %s
+                        WHERE id = %s
+                    ''', ('TRUE' if comisionable_value else 'FALSE', item_id))
 
-            conn.commit()
-            cursor.close()
-            conn.close()
-            QtWidgets.QMessageBox.information(self, "Éxito", "Cambios guardados exitosamente.")
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Error al guardar cambios: {e}")
-            print(f"Error al guardar cambios: {e}")
+                conn.commit()
+                cursor.close()
+                conn.close()
+                QtWidgets.QMessageBox.information(self, "Éxito", "Cambios guardados exitosamente.")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Error", f"Error al guardar cambios: {e}")
+                print(f"Error al guardar cambios: {e}")
 
     def export_to_xls(self):
         try:
             rowCount = self.table.rowCount()
             columnCount = self.table.columnCount()
 
-            # Crear un DataFrame vacío
             data = []
             headers = [self.table.horizontalHeaderItem(i).text() for i in range(columnCount)]
 
-            # Rellenar el DataFrame con los datos de la tabla
             for row in range(rowCount):
                 rowData = []
                 for column in range(columnCount):
-                    if column == 18:  # Columna 'comisionable' con el checkbox
+                    if column == 3:  # Columna 'comisionable' con el checkbox
                         checkbox = self.table.cellWidget(row, column)
                         rowData.append(checkbox.isChecked())
                     else:
@@ -188,7 +166,6 @@ class ArticulosApp(QtWidgets.QWidget):
 
             df = pd.DataFrame(data, columns=headers)
 
-            # Guardar el DataFrame en un archivo Excel
             options = QtWidgets.QFileDialog.Options()
             file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar archivo Excel", "", "Excel Files (*.xlsx);;All Files (*)", options=options)
             if file_path:
@@ -198,7 +175,6 @@ class ArticulosApp(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, "Error", f"Error al exportar datos: {e}")
             print(f"Error al exportar datos: {e}")
 
-# Ejecut
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     window = ArticulosApp()

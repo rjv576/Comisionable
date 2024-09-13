@@ -5,7 +5,9 @@ __pycache__/
 
 # C extensions
 *.so
-
+.~lock.COM-SHOW-DATA-2024-01.ods#
+.~lock.b.xlsx#
+.~xls
 # Distribution / packaging
 .Python
 build/
