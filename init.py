@@ -16,8 +16,12 @@ def create_table():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS articulos (
             id SERIAL PRIMARY KEY,
+            sales_person VARCHAR(100),
+            net_sales DECIMAL,
+            commission DECIMAL,
             item_description TEXT,
             item_number VARCHAR(50),
+            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
             comisionable BOOLEAN DEFAULT FALSE
         );
     ''')

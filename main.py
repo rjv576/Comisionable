@@ -12,10 +12,10 @@ class ArticulosApp(QtWidgets.QWidget):
 
         # Crear una tabla
         self.table = QtWidgets.QTableWidget(self)
-        self.table.setRowCount(0)
-        self.table.setColumnCount(4)
+        self.table.setRowCount(0)  # Inicialmente no hay filas
+        self.table.setColumnCount(8)  # Añadir una columna para el checkbox de "comisionable"
         self.table.setHorizontalHeaderLabels([
-            "ID", "item_description", "item_number", "comisionable"
+            "Id","Sales Person", "Net Sales", "Commision", "Item Description", "Item Number", "Time", "Comisionable"
         ])
 
         # Crear botones
@@ -55,57 +55,60 @@ class ArticulosApp(QtWidgets.QWidget):
         # Leer el archivo Excel
         self.df = pd.read_excel(file_path)
 
-        # Identificar las columnas 'item_number' y 'item_description' sin importar los nombres exactos
-        columns_map = {col.lower(): col for col in self.df.columns}
-        item_number_col = columns_map.get('item number')  # Buscar en minúsculas
-        item_description_col = columns_map.get('item description')  # Buscar en minúsculas
+        # Normalizar nombres de las columnas (quitar espacios y convertir a minúsculas)
+        normalized_columns = {col.strip().lower(): col for col in self.df.columns}
 
+        # Ajustar los nombres exactos de las columnas
+        def find_column(partial_name, columns):
+            for col in columns:
+                if partial_name in col:
+                    return columns[col]
+            return None
 
-        if not item_number_col or not item_description_col:
-            QtWidgets.QMessageBox.critical(self, "Error", "No se encontraron las columnas 'Item Number' o 'Item_Description'")
+        # Ajustar los nombres de acuerdo a lo visto en la imagen
+        sales_person_col = find_column('salesperson name', normalized_columns)
+        item_number_col = find_column('item number', normalized_columns)
+        item_description_col = find_column('item description', normalized_columns)
+        net_sales_col = find_column('net sales', normalized_columns)
+        commission_col = find_column('commision', normalized_columns)
+
+        # Verificar que se encontraron todas las columnas necesarias
+        if not item_number_col or not item_description_col or not net_sales_col or not commission_col or not sales_person_col:
+            QtWidgets.QMessageBox.critical(self, "Error", "No se encontraron las columnas necesarias.")
             return
 
-        # Detectar y eliminar duplicados antes de insertar en la base de datos
-        self.df = self.df.drop_duplicates(subset=[item_number_col, item_description_col])
+        # Inserta cada fila en la base de datos y asegúrate de que no sean None
+        for row in self.df.iterrows():
+            sales_person = row.get(sales_person_col, "")
+            net_sales = row.get(net_sales_col, 0) # Valor por defecto 0 si no se encuentra
+            commission = row.get(commission_col,0) # Valor por defecto 0 si no se encuentra
+            item_description = row.get(item_description_col, "")
+            item_number = row.get(item_number_col, "")
 
-        for _, row in self.df.iterrows():
-            # Verificar si el artículo ya existe en la base de datos
-            if not self.is_duplicate_in_db(cursor, row[item_number_col], row[item_description_col]):
-                cursor.execute('''
-                    INSERT INTO articulos (item_description, item_number, comisionable)
-                    VALUES (%s, %s, %s)
-                ''', (
-                    row[item_description_col],
-                    row[item_number_col],
-                    'TRUE' if row.get('comisionable', False) else 'FALSE'
-                ))
+            cursor.execute('''
+                INSERT INTO articulos (sales_person, net_sales, commission, item_description, item_number)
+                VALUES (%s, %s, %s, %s, %s)
+            ''', (sales_person, net_sales, commission, item_description, item_number))
 
         conn.commit()
         cursor.close()
         conn.close()
         QtWidgets.QMessageBox.information(self, "Éxito", "Datos importados exitosamente.")
 
-    def is_duplicate_in_db(self, cursor, item_number, item_description):
-        cursor.execute('''
-            SELECT COUNT(*) FROM articulos
-            WHERE item_number = %s AND item_description = %s
-        ''', (item_number, item_description))
-        return cursor.fetchone()[0] > 0
-
     def load_data_from_db(self):
         try:
             conn = init.connect_db()
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM articulos')
+            cursor.execute('SELECT id,sales_person, net_sales, commission, item_description, item_number, date, comisionable FROM articulos')
             rows = cursor.fetchall()
 
             self.table.setRowCount(len(rows))
 
             for i, row in enumerate(rows):
                 for j, value in enumerate(row):
-                    if j == 3:  # Columna "comisionable"
+                    if j == 7:  # Columna "comisionable"
                         checkbox = QCheckBox()
-                        checkbox.setChecked(value == 'FALSE')
+                        checkbox.setChecked(value == 'TRUE')
                         checkbox.stateChanged.connect(lambda state, row=i: self.update_comisionable_value(row, state))
                         self.table.setCellWidget(i, j, checkbox)
                     else:
@@ -122,60 +125,104 @@ class ArticulosApp(QtWidgets.QWidget):
         self.df.at[row, 'comisionable'] = bool(state)
 
     def update_comisionable_in_db(self):
-            try:
-                conn = init.connect_db()
-                cursor = conn.cursor()
+        try:
+            conn = init.connect_db()
+            cursor = conn.cursor()
 
-                for row in range(self.table.rowCount()):
-                    item_id = self.table.item(row, 0).text()  # Asumiendo que el 'ID' está en la primera columna
-                    comisionable_widget = self.table.cellWidget(row, 3)  # El checkbox está en la cuarta columna
-                    comisionable_value = comisionable_widget.isChecked()
+            # Actualizar los valores en la base de datos
+            for row in range(self.table.rowCount()):
+                item_id_item = self.table.item(row, 0)
+                if item_id_item is not None:
+                    item_id = item_id_item.text()
+                else:
+                    continue  # Saltar la fila si no tiene valor en la primera columna (ID)
 
-                    cursor.execute('''
-                        UPDATE articulos
-                        SET comisionable = %s
-                        WHERE id = %s
-                    ''', ('TRUE' if comisionable_value else 'FALSE', item_id))
+                comisionable_widget = self.table.cellWidget(row, 7)  # Columna "comisionable"
+                comisionable_value = comisionable_widget.isChecked() if comisionable_widget else False
 
-                conn.commit()
-                cursor.close()
-                conn.close()
-                QtWidgets.QMessageBox.information(self, "Éxito", "Cambios guardados exitosamente.")
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Error", f"Error al guardar cambios: {e}")
-                print(f"Error al guardar cambios: {e}")
+                cursor.execute('''
+                    UPDATE articulos
+                    SET comisionable = %s
+                    WHERE id = %s
+                ''', ('TRUE' if comisionable_value else 'FALSE', item_id))
+
+            conn.commit()
+            cursor.close()
+            conn.close()
+            QtWidgets.QMessageBox.information(self, "Éxito", "Cambios guardados exitosamente.")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", f"Error al guardar cambios: {e}")
+            print(f"Error al guardar cambios: {e}")
 
     def export_to_xls(self):
-        try:
-            rowCount = self.table.rowCount()
-            columnCount = self.table.columnCount()
+            try:
+                rowCount = self.table.rowCount()
+                columnCount = self.table.columnCount()
 
-            data = []
-            headers = [self.table.horizontalHeaderItem(i).text() for i in range(columnCount)]
+                # Obtener encabezados de columnas
+                headers = [self.table.horizontalHeaderItem(i).text() for i in range(columnCount)]
 
-            for row in range(rowCount):
-                rowData = []
-                for column in range(columnCount):
-                    if column == 3:  # Columna 'comisionable' con el checkbox
-                        checkbox = self.table.cellWidget(row, column)
-                        rowData.append(checkbox.isChecked())
-                    else:
+                # Añadir la columna de ganancia
+                headers.append("Ganancia")
+
+                data = []
+
+                for row in range(rowCount):
+                    rowData = []
+                    comisionable_widget = self.table.cellWidget(row, 7)  # Índice 7 para "comisionable"
+                    comisionable_value = comisionable_widget.isChecked() if comisionable_widget else False
+
+                    net_sales = 0
+                    commission = 0
+
+                    for column in range(columnCount):
                         item = self.table.item(row, column)
-                        rowData.append(item.text() if item else "")
-                data.append(rowData)
+                        if item:
+                            text = item.text()
+                            # Añadir el texto de cada celda a rowData
+                            rowData.append(text)
+                            # Extraer valores de las columnas específicas
+                            if column == 2:  # Columna "Net Sales" (índice 2)
+                                try:
+                                    net_sales = float(text)
+                                except ValueError:
+                                    net_sales = 0
+                            elif column == 3:  # Columna "Commision" (índice 3)
+                                try:
+                                    commission = float(text)
+                                except ValueError:
+                                    commission = 0
+                        else:
+                            rowData.append("")
 
-            df = pd.DataFrame(data, columns=headers)
+                    # Añadir el valor de "Comisionable" a rowData
+                    rowData.append(comisionable_value)
 
-            options = QtWidgets.QFileDialog.Options()
-            file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar archivo Excel", "", "Excel Files (*.xlsx);;All Files (*)", options=options)
-            if file_path:
-                df.to_excel(file_path, index=False, engine='openpyxl')
-                QtWidgets.QMessageBox.information(self, "Éxito", "Datos exportados exitosamente.")
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Error al exportar datos: {e}")
-            print(f"Error al exportar datos: {e}")
+                    # Calcular ganancia si es comisionable
+                    ganancia = net_sales * commission if comisionable_value else 0
+                    rowData.append(ganancia)  # Añadir ganancia al final
 
-if __name__ == "__main__":
+                    data.append(rowData)
+
+                # Verifica los encabezados y los datos
+                print(f"Headers: {headers}")
+                print(f"First row of data: {data[0]}")
+
+                # Crear el DataFrame con los datos y los encabezados
+                df = pd.DataFrame(data, columns=headers)
+
+                # Guardar el archivo Excel
+                options = QtWidgets.QFileDialog.Options()
+                file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar archivo Excel", "", "Excel Files (*.xlsx);;All Files (*)", options=options)
+                if file_path:
+                    df.to_excel(file_path, index=False, engine='openpyxl')
+                    QtWidgets.QMessageBox.information(self, "Éxito", "Datos exportados exitosamente.")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Error", f"Error al exportar datos: {e}")
+                print(f"Error al exportar datos: {e}")
+
+
+if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     window = ArticulosApp()
     window.show()
