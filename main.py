@@ -77,23 +77,26 @@ class ArticulosApp(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, "Error", "No se encontraron las columnas necesarias.")
             return
 
-        # Inserta cada fila en la base de datos y asegúrate de que no sean None
-        for row in self.df.iterrows():
+        # Iterar sobre las filas del DataFrame
+        for index, row in self.df.iterrows():
             sales_person = row.get(sales_person_col, "")
-            net_sales = row.get(net_sales_col, 0) # Valor por defecto 0 si no se encuentra
-            commission = row.get(commission_col,0) # Valor por defecto 0 si no se encuentra
-            item_description = row.get(item_description_col, "")
             item_number = row.get(item_number_col, "")
+            item_description = row.get(item_description_col, "")
+            net_sales = row.get(net_sales_col, 0)
+            commission = row.get(commission_col, 0)
 
-            cursor.execute('''
-                INSERT INTO articulos (sales_person, net_sales, commission, item_description, item_number)
-                VALUES (%s, %s, %s, %s, %s)
-            ''', (sales_person, net_sales, commission, item_description, item_number))
+            # Aquí puedes insertar los datos en la base de datos
+            cursor.execute(
+                "INSERT INTO articulos (sales_person, item_number, item_description, net_sales, commission) VALUES (%s, %s, %s, %s, %s)",
+                (sales_person, item_number, item_description, net_sales, commission)
+            )
 
         conn.commit()
         cursor.close()
         conn.close()
-        QtWidgets.QMessageBox.information(self, "Éxito", "Datos importados exitosamente.")
+        
+         # Mostrar mensaje de éxito
+        QtWidgets.QMessageBox.information(self, "Éxito", "Los datos se han cargado exitosamente en la base de datos.")
 
     def load_data_from_db(self):
         try:
@@ -155,71 +158,91 @@ class ArticulosApp(QtWidgets.QWidget):
             print(f"Error al guardar cambios: {e}")
 
     def export_to_xls(self):
-            try:
-                rowCount = self.table.rowCount()
-                columnCount = self.table.columnCount()
+        try:
+            rowCount = self.table.rowCount()
+            columnCount = self.table.columnCount()
 
-                # Obtener encabezados de columnas
-                headers = [self.table.horizontalHeaderItem(i).text() for i in range(columnCount)]
+            # Obtener encabezados de columnas
+            headers = [self.table.horizontalHeaderItem(i).text() for i in range(columnCount)]
 
-                # Añadir la columna de ganancia
-                headers.append("Ganancia")
+            # Añadir las columnas "Comisionable" y "Ganancia"
+            headers.append("Comisionable")
+            headers.append("Ganancia")
 
-                data = []
+            data = []
+            salesperson_commissions = {}
 
-                for row in range(rowCount):
-                    rowData = []
-                    comisionable_widget = self.table.cellWidget(row, 7)  # Índice 7 para "comisionable"
-                    comisionable_value = comisionable_widget.isChecked() if comisionable_widget else False
+            for row in range(rowCount):
+                rowData = []
+                comisionable_widget = self.table.cellWidget(row, 7)  # Índice 7 para "comisionable"
+                comisionable_value = comisionable_widget.isChecked() if comisionable_widget else False
 
-                    net_sales = 0
-                    commission = 0
+                net_sales = 0
+                commission = 0
+                salesperson = ""
 
-                    for column in range(columnCount):
-                        item = self.table.item(row, column)
-                        if item:
-                            text = item.text()
-                            # Añadir el texto de cada celda a rowData
-                            rowData.append(text)
-                            # Extraer valores de las columnas específicas
-                            if column == 2:  # Columna "Net Sales" (índice 2)
-                                try:
-                                    net_sales = float(text)
-                                except ValueError:
-                                    net_sales = 0
-                            elif column == 3:  # Columna "Commision" (índice 3)
-                                try:
-                                    commission = float(text)
-                                except ValueError:
-                                    commission = 0
-                        else:
-                            rowData.append("")
+                for column in range(columnCount):
+                    item = self.table.item(row, column)
+                    if item:
+                        text = item.text()
+                        rowData.append(text)
 
-                    # Añadir el valor de "Comisionable" a rowData
-                    rowData.append(comisionable_value)
+                        # Extraer valores de las columnas específicas
+                        if column == 1:  # Columna "Salesperson" (índice 0)
+                            salesperson = text
+                        elif column == 2:  # Columna "Net Sales" (índice 2)
+                            try:
+                                net_sales = float(text)
+                            except ValueError:
+                                net_sales = 0
+                        elif column == 3:  # Columna "Commision" (índice 3)
+                            try:
+                                commission = float(text)
+                            except ValueError:
+                                commission = 0
+                    else:
+                        rowData.append("")
 
-                    # Calcular ganancia si es comisionable
-                    ganancia = net_sales * commission if comisionable_value else 0
-                    rowData.append(ganancia)  # Añadir ganancia al final
+                # Añadir el valor de "Comisionable" a rowData
+                rowData.append(comisionable_value)
 
-                    data.append(rowData)
+                # Calcular ganancia si es comisionable
+                if comisionable_value:
+                    ganancia = net_sales * commission  # Se calcula solo si es comisionable
+                    rowData.append(ganancia)
 
-                # Verifica los encabezados y los datos
-                print(f"Headers: {headers}")
-                print(f"First row of data: {data[0]}")
+                    # Acumular comisiones por salesperson si es comisionable
+                    if salesperson in salesperson_commissions:
+                        salesperson_commissions[salesperson] += ganancia
+                    else:
+                        salesperson_commissions[salesperson] = ganancia
+                else:
+                    rowData.append(0)  # Si no es comisionable, ganancia es 0
 
-                # Crear el DataFrame con los datos y los encabezados
-                df = pd.DataFrame(data, columns=headers)
+                data.append(rowData)
 
-                # Guardar el archivo Excel
-                options = QtWidgets.QFileDialog.Options()
-                file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar archivo Excel", "", "Excel Files (*.xlsx);;All Files (*)", options=options)
-                if file_path:
-                    df.to_excel(file_path, index=False, engine='openpyxl')
-                    QtWidgets.QMessageBox.information(self, "Éxito", "Datos exportados exitosamente.")
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Error", f"Error al exportar datos: {e}")
-                print(f"Error al exportar datos: {e}")
+            # Crear el DataFrame con los datos y los encabezados
+            df = pd.DataFrame(data, columns=headers)
+
+            # Crear el DataFrame para el resumen de comisiones por salesperson
+            summary_data = [{'Salesperson': salesperson, 'Total Ganancia': total_ganancia}
+                            for salesperson, total_ganancia in salesperson_commissions.items()]
+            df_summary = pd.DataFrame(summary_data)
+
+            # Guardar el archivo Excel con ambas hojas
+            options = QtWidgets.QFileDialog.Options()
+            file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar archivo Excel", "", "Excel Files (*.xlsx);;All Files (*)", options=options)
+            if file_path:
+                with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+                    # Guardar la tabla principal en la primera hoja
+                    df.to_excel(writer, sheet_name='Datos', index=False)
+                    # Guardar la tabla resumen en una segunda hoja
+                    df_summary.to_excel(writer, sheet_name='Resumen de Comisiones', index=False)
+
+                QtWidgets.QMessageBox.information(self, "Éxito", "Datos y resumen de comisiones exportados exitosamente.")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", f"Error al exportar datos: {e}")
+            print(f"Error al exportar datos: {e}")
 
 
 if __name__ == '__main__':
