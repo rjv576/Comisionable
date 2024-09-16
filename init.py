@@ -4,7 +4,7 @@ def connect_db():
     conn = psycopg2.connect(
         dbname="Comisionable",
         user="mi_usuario",
-        password="0620", # Eridicald@12
+        password="Eridicald@12", # Eridicald@12 #0620
         host="localhost",
         port="5432"
     )
@@ -20,6 +20,7 @@ def create_table():
             net_sales DECIMAL,
             commission DECIMAL,
             item_description TEXT,
+            store_name VARCHAR(50),
             item_number VARCHAR(50),
             date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
             comisionable BOOLEAN DEFAULT FALSE
