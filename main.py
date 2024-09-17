@@ -1,10 +1,12 @@
-import init
-import pandas as pd
+import sys
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtWidgets import QCheckBox, QDateEdit
-import sys
+import pandas as pd
+import init
+from read_parameter import load_db_config
+from get_conection import ConfigDBDialog
 
-
+print("Inicio del programa")
 
 class ArticulosApp(QtWidgets.QWidget):
     def __init__(self):
@@ -248,8 +250,32 @@ class ArticulosApp(QtWidgets.QWidget):
                 conn.close()
 
 
-if __name__ == '__main__':
+def main():
+    # Crear la aplicación QApplication antes de crear cualquier ventana
+    print("Inicializando QApplication")
     app = QtWidgets.QApplication(sys.argv)
+    
+    # Verificar si el archivo de configuración de la base de datos existe
+    config = load_db_config()
+    print(f"Configuración cargada: {config}")
+
+    if not config:
+        print("Mostrando diálogo de configuración de la DB")
+        dialog = ConfigDBDialog()
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            init.create_table()  # Crear la tabla después de la configuración
+    else:
+        print("Creando tabla en la DB")
+        # Si ya existe la configuración, crear la tabla y continuar
+        init.create_table()
+
+    # Crear la ventana principal después de la verificación
     window = ArticulosApp()
     window.show()
+
+    # Ejecutar el ciclo de eventos de la aplicación
+    print("Ejecutando la aplicación")
     sys.exit(app.exec_())
+
+if __name__ == '__main__':
+    main()
