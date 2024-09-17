@@ -4,7 +4,7 @@ def connect_db():
     conn = psycopg2.connect(
         dbname="Comisionable",
         user="mi_usuario",
-        password="Eridicald@12",
+        password="Eridicald@12", # Eridicald@12 #0620
         host="localhost",
         port="5432"
     )
@@ -16,23 +16,13 @@ def create_table():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS articulos (
             id SERIAL PRIMARY KEY,
-            salesperson_name VARCHAR(255),
-            store_short_same VARCHAR(255),
+            sales_person VARCHAR(100),
             net_sales DECIMAL,
-            order_number VARCHAR(50),
-            promocion_sales DECIMAL,
+            commission DECIMAL,
             item_description TEXT,
-            territory VARCHAR(255),
-            department_code VARCHAR(50),
-            department_name VARCHAR(255),
+            store_name VARCHAR(50),
             item_number VARCHAR(50),
-            transation VARCHAR(50),
-            comision DECIMAL,
-            date DATE,
-            fineline_code VARCHAR(50),
-            fineline_name VARCHAR(255),
-            class_code VARCHAR(50),
-            class_name VARCHAR(255),
+            date DATE, 
             comisionable BOOLEAN DEFAULT FALSE
         );
     ''')
