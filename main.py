@@ -15,9 +15,9 @@ class ArticulosApp(QtWidgets.QWidget):
         # Crear una tabla
         self.table = QtWidgets.QTableWidget(self)
         self.table.setRowCount(0)  # Inicialmente no hay filas
-        self.table.setColumnCount(4)  # Solo "Item Description", "Item Number", "Comisionable"
+        self.table.setColumnCount(3)  # Solo "Item Description", "Item Number", "Comisionable"
         self.table.setHorizontalHeaderLabels([
-            "Store Name","Item Description", "Item Number", "Comisionable"
+            "Item Description", "Item Number", "Comisionable"
         ])
 
         # Crear widgets para las fechas
@@ -79,7 +79,7 @@ class ArticulosApp(QtWidgets.QWidget):
 
             # Traer solo Item Description y Item Number sin duplicados, filtrados por rango de fechas
             cursor.execute('''
-                SELECT DISTINCT store_name, item_description, item_number, comisionable
+                SELECT DISTINCT  item_description, item_number, comisionable
                 FROM articulos
                 WHERE date BETWEEN %s AND %s
             ''', (start_date, end_date))
@@ -90,7 +90,7 @@ class ArticulosApp(QtWidgets.QWidget):
 
             for i, row in enumerate(rows):
                 for j, value in enumerate(row):
-                    if j == 3:  # Columna "Comisionable"
+                    if j == 2:  # Columna "Comisionable"
                         checkbox = QCheckBox()
                         checkbox.setChecked(value == 'TRUE')
                         self.table.setCellWidget(i, j, checkbox)
@@ -111,10 +111,10 @@ class ArticulosApp(QtWidgets.QWidget):
 
             # Actualizar los valores de "comisionable" en la base de datos
             for row in range(self.table.rowCount()):
-                item_description = self.table.item(row, 1).text() # Columna "Item Description"``
-                item_number = self.table.item(row, 2).text() # Columna "Item Number"
+                item_description = self.table.item(row, 0).text() # Columna "Item Description"``
+                item_number = self.table.item(row, 1).text() # Columna "Item Number"
 
-                comisionable_widget = self.table.cellWidget(row, 3)  # Columna "Comisionable"
+                comisionable_widget = self.table.cellWidget(row, 2)  # Columna "Comisionable"
                 comisionable_value = comisionable_widget.isChecked() if comisionable_widget else False
 
                 cursor.execute('''
@@ -151,6 +151,7 @@ class ArticulosApp(QtWidgets.QWidget):
                 return None
 
             # Ajustar los nombres de acuerdo a lo visto en la imagen
+            date_col = find_column('date', normalized_columns)
             sales_person_col = find_column('salesperson name', normalized_columns)
             item_number_col = find_column('item number', normalized_columns)
             item_description_col = find_column('item description', normalized_columns)
@@ -159,7 +160,7 @@ class ArticulosApp(QtWidgets.QWidget):
             store_name_col = find_column('store short name', normalized_columns)
 
             # Verificar que se encontraron todas las columnas necesarias
-            if not item_number_col or not item_description_col or not net_sales_col or not commission_col or not sales_person_col:
+            if not item_number_col or not item_description_col or not net_sales_col or not commission_col or not sales_person_col or not store_name_col or not date_col:
                 QtWidgets.QMessageBox.critical(self, "Error", "No se encontraron las columnas necesarias.")
                 return
 
@@ -171,19 +172,27 @@ class ArticulosApp(QtWidgets.QWidget):
                 net_sales = row.get(net_sales_col, 0)
                 commission = row.get(commission_col, 0)
                 store_name = row.get(store_name_col, "")
+                date = row.get(date_col, "")
+                # Convertir la fecha a formato 'YYYY-MM-DD'
+                if pd.notna(date):
+                    date = pd.to_datetime(date).strftime('%Y-%m-%d')
+
                 try:
                     # Insertar los datos en la base de datos, marcando comisionable como false por defecto
                     cursor.execute(
-                            "INSERT INTO articulos (sales_person,net_sales,commission, item_description, store_name, item_number,comisionable) "
-                            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                            (sales_person,net_sales,commission,item_description,store_name,item_number, False)  # Comisionable en False por defecto
+                            "INSERT INTO articulos (sales_person,net_sales,commission, item_description, store_name, item_number, date , comisionable) "
+                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                            (sales_person,net_sales,commission,item_description,store_name,item_number,date, False)  # Comisionable en False por defecto
                         )
 
                     # Hacer commit después de insertar todas las filas
                     conn.commit()
                     print("Datos importados exitosamente.")
+            
                 except Exception as e:
                     print(f"Error al importar los datos: {e}")
+                    
+            QtWidgets.QMessageBox.information(self, "Éxito", "Datos importados exitosamente.")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", f"Error al importar datos: {e}")
             print(f"Error al importar datos: {e}")

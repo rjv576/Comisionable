@@ -22,7 +22,7 @@ def create_table():
             item_description TEXT,
             store_name VARCHAR(50),
             item_number VARCHAR(50),
-            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
+            date DATE, 
             comisionable BOOLEAN DEFAULT FALSE
         );
     ''')
