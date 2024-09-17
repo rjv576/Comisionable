@@ -1,33 +1,47 @@
 import psycopg2
+from PyQt5.QtWidgets import QApplication, QMessageBox
+from read_parameter import load_db_config
 
 def connect_db():
-    conn = psycopg2.connect(
-        dbname="Comisionable",
-        user="mi_usuario",
-        password="Eridicald@12", # Eridicald@12 #0620
-        host="localhost",
-        port="5432"
-    )
-    return conn
-
+    config = load_db_config()
+    if config:
+        try:
+            conn = psycopg2.connect(
+                dbname=config["dbname"],
+                user=config["user"],
+                password=config["password"],
+                host=config["host"],
+                port=config["port"]
+            )
+            return conn
+        except Exception as e:
+            # Usa QApplication.instance() para asegurar que la aplicación está inicializada
+            if QApplication.instance():
+                QMessageBox.critical(None, "Error", f"No se pudo conectar a la base de datos: {e}")
+            else:
+                print(f"No se pudo conectar a la base de datos: {e}")
+            return None
+    
 def create_table():
     conn = connect_db()
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS articulos (
-            id SERIAL PRIMARY KEY,
-            sales_person VARCHAR(100),
-            net_sales DECIMAL,
-            commission DECIMAL,
-            item_description TEXT,
-            store_name VARCHAR(50),
-            item_number VARCHAR(50),
-            date DATE, 
-            comisionable BOOLEAN DEFAULT FALSE
-        );
-    ''')
-    conn.commit()
-    cursor.close()
-    conn.close()
+    if conn:  # Verifica si la conexión es exitosa
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS articulos (
+                id SERIAL PRIMARY KEY,
+                sales_person VARCHAR(100),
+                net_sales DECIMAL,
+                commission DECIMAL,
+                item_description TEXT,
+                store_name VARCHAR(50),
+                item_number VARCHAR(50),
+                date DATE, 
+                comisionable BOOLEAN DEFAULT FALSE
+            );
+        ''')
+        conn.commit()
+        cursor.close()
+        conn.close()
+    else:
+        print("Error: No se pudo conectar a la base de datos para crear la tabla.")
 
-create_table()
