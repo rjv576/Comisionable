@@ -1,6 +1,9 @@
 import sys
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtWidgets import QCheckBox, QDateEdit
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 import pandas as pd
 import init
 from read_parameter import load_db_config
@@ -45,9 +48,15 @@ class ArticulosApp(QtWidgets.QWidget):
 
         self.export_button = QtWidgets.QPushButton("Calcular y Exportar Ganancias")
         self.export_button.clicked.connect(self.export_salesperson_earnings)
+        # Crear un botón para ordenar los items
+        # Agregar un ComboBox para seleccionar el orden de clasificación
+        self.sort_order_combo = QtWidgets.QComboBox(self)
+        self.sort_order_combo.addItems(["A-Z", "Z-A"])
+        self.sort_order_combo.currentIndexChanged.connect(self.load_items_from_db)
 
         # Crear layout
         date_layout = QtWidgets.QHBoxLayout()
+        date_layout.addSpacerItem(QtWidgets.QSpacerItem(30, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)) # Espaciador
         date_layout.addWidget(QtWidgets.QLabel("Fecha de inicio:"))
         date_layout.addWidget(self.start_date_edit)
         date_layout.addWidget(QtWidgets.QLabel("Fecha de fin:"))
@@ -79,12 +88,15 @@ class ArticulosApp(QtWidgets.QWidget):
             start_date = self.start_date_edit.date().toString("yyyy-MM-dd")
             end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
 
+            order = "ASC" if self.sort_order_combo.currentText() == "A-Z" else "DESC"
+
             # Traer solo Item Description y Item Number sin duplicados, filtrados por rango de fechas
             cursor.execute('''
                 SELECT DISTINCT  item_description, item_number, comisionable
                 FROM articulos
                 WHERE date BETWEEN %s AND %s
-            ''', (start_date, end_date))
+                ORDER BY item_description {}
+            '''.format(order), (start_date, end_date))
             rows = cursor.fetchall()
 
             # Configurar la tabla
@@ -123,7 +135,7 @@ class ArticulosApp(QtWidgets.QWidget):
                     UPDATE articulos
                     SET comisionable = %s
                     WHERE item_description = %s AND item_number = %s
-                ''', ('TRUE' if comisionable_value else 'FALSE', item_description, item_number))
+                ''', ('FALSE' if comisionable_value else 'TRUE', item_description, item_number))
 
             conn.commit()
             cursor.close()
@@ -184,7 +196,7 @@ class ArticulosApp(QtWidgets.QWidget):
                     cursor.execute(
                             "INSERT INTO articulos (sales_person,net_sales,commission, item_description, store_name, item_number, date , comisionable) "
                             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                            (sales_person,net_sales,commission,item_description,store_name,item_number,date, False)  # Comisionable en False por defecto
+                            (sales_person,net_sales,commission,item_description,store_name,item_number,date, True)  # Comisionable en True por defecto
                         )
 
                     # Hacer commit después de insertar todas las filas
@@ -218,27 +230,63 @@ class ArticulosApp(QtWidgets.QWidget):
             # Consultar articulos comisionables por cada salesperson en el rango de fechas
             cursor.execute('''
                 SELECT store_name, sales_person, 
-                           SUM(net_sales * 0.01) as revenue,
+                           SUM(net_sales * 0.01) as commission,
                            SUM(net_sales) as total_sale
                 FROM articulos 
                 WHERE comisionable = 'TRUE'
                 AND date BETWEEN %s AND %s
+                AND net_sales >= 0
                 GROUP BY store_name, sales_person 
             ''', (start_date, end_date))
 
             rows = cursor.fetchall()
-            df_earnings = pd.DataFrame(rows, columns=['Store Name','Sales Person', 'Revenue', 'Total Sale']) # Crear un DataFrame con los resultados
+            df_earnings = pd.DataFrame(rows, columns=['Store Name','Sales Person', 'Commission', 'Total Sale']) # Crear un DataFrame con los resultados
+           
+            # Calcular los totales
+            total_commission = round(df_earnings['Commission'].sum(),2)
+            total_sale = round(df_earnings['Total Sale'].sum(),2)
 
-            # Exportar las ganancias a un archivo Excel
-            options = QtWidgets.QFileDialog.Options()  # Opciones para el diálogo de guardar archivo
-            file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar archivo Excel", "", "Excel Files (*.xlsx);;All Files (*)", options=options)
-            if file_path:
-                df_earnings.to_excel(file_path, index=False) # Exportar el DataFrame a un archivo Excel
+            # Agregar la fila de "Gran Total"
+            total_row = pd.DataFrame([['', 'Gran Total', total_commission, total_sale]], columns=df_earnings.columns)
+            df_earnings = pd.concat([df_earnings, total_row], ignore_index=True)
+           
+            # Exportar las ganancias a un archivo PDF
+            file_dialog_options = QtWidgets.QFileDialog.Options()  # Opciones para el diálogo de guardar archivo
+            file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Guardar archivo PDF", "", "PDF Files (*.pdf);;All Files (*)", options=file_dialog_options)
 
-                QtWidgets.QMessageBox.information(self, "Éxito", "Ganancias exportadas exitosamente.")
-            
-            cursor.close()
-            conn.close()
+            # Crear un documento PDF
+            pdf = SimpleDocTemplate(file_path, pagesize=letter)
+            elements = []
+
+            # Convertir el DataFrame a una lista de listas (Filas y columnas)
+            data = [df_earnings.columns.tolist()] + df_earnings.values.tolist()
+
+            # Crear la tabla en reportlab
+            table = Table(data)
+            table_style = TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('BACKGROUND', (-1, -1), (-1, -1), colors.lightgrey),  # Fondo para la fila de "Gran Total"
+                ('TEXTCOLOR', (-1, -1), (-1, -1), colors.black),  # Color de texto para la fila de "Gran Total"
+                ('FONTNAME', (-1, -1), (-1, -1), 'Helvetica-Bold'),  # Fuente para la fila de "Gran Total"
+                ('FONTSIZE', (-1, -1), (-1, -1), 12),  # Tamaño de fuente para la fila de "Gran Total"
+                ('ALIGN', (-1, -1), (-1, -1), 'CENTER'),  # Alineación para la fila de "Gran Total"
+                
+            ])
+            table.setStyle(table_style) 
+            elements.append(table)
+
+            # Construir el documento PDF
+            pdf.build(elements)
+            print("Documento PDF creado exitosamente.")  # Mensaje de depuración
+
+            QtWidgets.QMessageBox.information(self, "Éxito", "Ganancias exportadas exitosamente.")
 
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", f"Error al calcular o exportar ganancias: {e}")
