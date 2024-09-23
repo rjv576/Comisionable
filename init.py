@@ -29,6 +29,7 @@ def create_table():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS articulos (
                 id SERIAL PRIMARY KEY,
+                employee_id VARCHAR(50),
                 sales_person VARCHAR(100),
                 net_sales DECIMAL,
                 commission DECIMAL,
